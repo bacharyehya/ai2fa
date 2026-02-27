@@ -1,0 +1,21 @@
+# ai2fa configuration
+# Copy to ~/.ai2fa/config.yaml (or run `ai2fa setup`)
+# https://github.com/bacharyehya/ai2fa
+
+# Out-of-band channel for sending verification codes
+# Options: telegram, slack, discord, email
+channel: telegram
+
+# Secret storage backend (auto-detected if not set)
+# Options: keychain (macOS), pass (Linux), env (fallback)
+# storage: keychain
+
+# Code expiry in seconds (default: 300 = 5 minutes)
+# expiry: 300
+
+# Code length in bytes (default: 3 = 6 hex characters)
+# code_length: 3
+
+# Channel-specific settings can go here, but credentials
+# should be stored in your OS secret store (Keychain/pass),
+# NOT in this file. Run `ai2fa setup` to configure securely.

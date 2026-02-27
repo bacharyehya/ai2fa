@@ -1,0 +1,8 @@
+# ai2fa — ignore user-specific files
+.DS_Store
+*.bak
+*.tmp
+
+# Never commit secrets
+secrets
+config.yaml

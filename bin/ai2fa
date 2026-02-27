@@ -1,0 +1,404 @@
+#!/bin/bash
+# ai2fa — Two-factor authentication for AI coding agents
+# https://github.com/bacharyehya/ai2fa
+
+set -euo pipefail
+
+# Resolve install directory (follow symlinks)
+AI2FA_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AI2FA_ROOT="$(cd "$AI2FA_BIN/.." && pwd)"
+AI2FA_SCRIPTS="$AI2FA_ROOT/scripts"
+
+# Source config
+# shellcheck source=../scripts/_config.sh
+source "$AI2FA_SCRIPTS/_config.sh"
+
+# ─── Help ─────────────────────────────────────────────────────────────
+
+show_version() {
+  echo "ai2fa $AI2FA_VERSION"
+}
+
+show_help() {
+  cat <<'EOF'
+
+  ai2fa — Two-factor authentication for AI coding agents
+
+  Your AI agent has access to your codebase, your APIs, your secrets.
+  But how does it know it's talking to YOU?
+
+  USAGE
+    ai2fa <command> [options]
+
+  COMMANDS
+    setup              Interactive setup wizard
+    send               Send a verification code to your channel
+    verify <CODE>      Verify a code
+    phrase <TEXT>       Verify your challenge phrase
+    check <NAME>       Check if a project name is a canary
+    status             Show configuration and health
+    test               Run a full end-to-end test
+
+  OPTIONS
+    -h, --help         Show this help
+    -v, --version      Show version
+    <cmd> --help       Show help for a specific command
+
+  QUICK START
+    $ ai2fa setup          # Configure your channel + secrets
+    $ ai2fa send           # Send a code to your phone
+    $ ai2fa verify A1B2C3  # Verify it
+
+  CHANNELS
+    telegram           Telegram Bot API (recommended)
+    slack              Slack incoming webhook
+    discord            Discord webhook
+    email              SMTP or sendmail
+
+  STORAGE BACKENDS
+    keychain           macOS Keychain (auto-detected on macOS)
+    pass               pass/GPG (auto-detected on Linux)
+    env                Environment variables / file fallback
+
+  MORE INFO
+    https://github.com/bacharyehya/ai2fa
+
+EOF
+}
+
+help_send() {
+  cat <<'EOF'
+  ai2fa send — Send a verification code
+
+  Generates a random code, hashes it (only the hash is stored locally),
+  and sends the actual code to your configured out-of-band channel.
+  The code never appears in the terminal.
+
+  USAGE
+    ai2fa send
+
+  The code expires after the configured timeout (default: 5 minutes).
+EOF
+}
+
+help_verify() {
+  cat <<'EOF'
+  ai2fa verify — Verify a code
+
+  USAGE
+    ai2fa verify <CODE>
+
+  Takes the code the user received on their device, hashes it,
+  and compares against the stored hash. Returns:
+    VERIFIED       — correct code
+    FAILED:*       — wrong code, expired, or no active challenge
+EOF
+}
+
+help_phrase() {
+  cat <<'EOF'
+  ai2fa phrase — Verify a challenge phrase
+
+  USAGE
+    ai2fa phrase <TEXT>
+
+  Compares the provided text against the stored challenge phrase.
+  The phrase is never printed — only VERIFIED or FAILED.
+EOF
+}
+
+help_check() {
+  cat <<'EOF'
+  ai2fa check — Check a project name against canary list
+
+  USAGE
+    ai2fa check <NAME>
+
+  If the name matches a configured canary project, silently alerts
+  via your channel and returns CANARY. Otherwise returns CLEAN.
+
+  Use this to detect unauthorized users who read your config and
+  reference fake project names thinking they're real.
+EOF
+}
+
+help_setup() {
+  cat <<'EOF'
+  ai2fa setup — Interactive setup wizard
+
+  USAGE
+    ai2fa setup
+
+  Walks you through configuring:
+    1. Out-of-band channel (Telegram, Slack, Discord, Email)
+    2. Channel credentials
+    3. Storage backend (auto-detected)
+    4. Challenge phrase (optional)
+    5. Canary projects (optional)
+
+  If 'gum' (charmbracelet/gum) is installed, you get a beautiful TUI.
+  Otherwise, plain interactive prompts.
+EOF
+}
+
+help_status() {
+  cat <<'EOF'
+  ai2fa status — Show configuration and health
+
+  USAGE
+    ai2fa status
+
+  Displays current channel, storage backend, config path,
+  and checks if credentials are configured.
+EOF
+}
+
+help_test() {
+  cat <<'EOF'
+  ai2fa test — Full end-to-end test
+
+  USAGE
+    ai2fa test
+
+  Sends a code via your channel and waits for you to enter it.
+  Validates the entire flow works correctly.
+EOF
+}
+
+# ─── Commands ─────────────────────────────────────────────────────────
+
+cmd_send() {
+  if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    help_send; exit 0
+  fi
+
+  if [ -z "$AI2FA_CHANNEL" ]; then
+    _ai2fa_err "No channel configured. Run 'ai2fa setup' first."
+    exit 1
+  fi
+
+  bash "$AI2FA_SCRIPTS/send-otp.sh"
+}
+
+cmd_verify() {
+  if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    help_verify; exit 0
+  fi
+
+  local code="${1:-}"
+  if [ -z "$code" ]; then
+    _ai2fa_err "Usage: ai2fa verify <CODE>"
+    exit 1
+  fi
+
+  bash "$AI2FA_SCRIPTS/verify-otp.sh" "$code"
+}
+
+cmd_phrase() {
+  if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    help_phrase; exit 0
+  fi
+
+  local text="${1:-}"
+  if [ -z "$text" ]; then
+    _ai2fa_err "Usage: ai2fa phrase <TEXT>"
+    exit 1
+  fi
+
+  bash "$AI2FA_SCRIPTS/verify-phrase.sh" "$text"
+}
+
+cmd_check() {
+  if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    help_check; exit 0
+  fi
+
+  local name="${1:-}"
+  if [ -z "$name" ]; then
+    _ai2fa_err "Usage: ai2fa check <NAME>"
+    exit 1
+  fi
+
+  bash "$AI2FA_SCRIPTS/canary-check.sh" "$name"
+}
+
+cmd_status() {
+  if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    help_status; exit 0
+  fi
+
+  _ai2fa_load_storage
+
+  echo ""
+  echo -e "  ${AI2FA_BOLD}ai2fa${AI2FA_RESET} v${AI2FA_VERSION}"
+  echo ""
+  echo -e "  ${AI2FA_DIM}Config${AI2FA_RESET}    $AI2FA_CONFIG_FILE"
+  echo -e "  ${AI2FA_DIM}Channel${AI2FA_RESET}   ${AI2FA_CHANNEL:-${AI2FA_YELLOW}not configured${AI2FA_RESET}}"
+  echo -e "  ${AI2FA_DIM}Storage${AI2FA_RESET}   ${AI2FA_STORAGE} ($(storage_name))"
+  echo -e "  ${AI2FA_DIM}Expiry${AI2FA_RESET}    ${AI2FA_EXPIRY}s"
+  echo -e "  ${AI2FA_DIM}Code len${AI2FA_RESET}  ${AI2FA_CODE_LENGTH} bytes ($(( AI2FA_CODE_LENGTH * 2 )) hex chars)"
+  echo ""
+
+  # Check credentials
+  if [ -n "$AI2FA_CHANNEL" ]; then
+    case "$AI2FA_CHANNEL" in
+      telegram)
+        if storage_exists "telegram_bot_token" && storage_exists "telegram_chat_id"; then
+          _ai2fa_ok "Telegram credentials configured"
+        else
+          _ai2fa_err "Telegram credentials missing"
+        fi
+        ;;
+      slack)
+        if storage_exists "slack_webhook_url"; then
+          _ai2fa_ok "Slack webhook configured"
+        else
+          _ai2fa_err "Slack webhook missing"
+        fi
+        ;;
+      discord)
+        if storage_exists "discord_webhook_url"; then
+          _ai2fa_ok "Discord webhook configured"
+        else
+          _ai2fa_err "Discord webhook missing"
+        fi
+        ;;
+      email)
+        if storage_exists "email_to"; then
+          _ai2fa_ok "Email recipient configured"
+        else
+          _ai2fa_err "Email recipient missing"
+        fi
+        ;;
+    esac
+  fi
+
+  # Check optional features
+  if storage_exists "challenge_phrase"; then
+    _ai2fa_ok "Challenge phrase configured"
+  else
+    _ai2fa_info "Challenge phrase not set (optional)"
+  fi
+
+  if storage_exists "canary_projects"; then
+    _ai2fa_ok "Canary projects configured"
+  else
+    _ai2fa_info "Canary projects not set (optional)"
+  fi
+
+  # Check for active challenge
+  local store="/tmp/.ai2fa_$(id -u)"
+  if [ -f "$store" ]; then
+    local stored_time
+    stored_time=$(tail -1 "$store")
+    local current_time
+    current_time=$(date +%s)
+    local elapsed=$(( current_time - stored_time ))
+    if [ "$elapsed" -lt "$AI2FA_EXPIRY" ]; then
+      local remaining=$(( AI2FA_EXPIRY - elapsed ))
+      _ai2fa_warn "Active challenge (${remaining}s remaining)"
+    else
+      _ai2fa_info "Expired challenge pending cleanup"
+    fi
+  fi
+
+  echo ""
+}
+
+cmd_test() {
+  if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    help_test; exit 0
+  fi
+
+  if [ -z "$AI2FA_CHANNEL" ]; then
+    _ai2fa_err "No channel configured. Run 'ai2fa setup' first."
+    exit 1
+  fi
+
+  echo ""
+  echo -e "  ${AI2FA_BOLD}ai2fa${AI2FA_RESET} end-to-end test"
+  echo ""
+
+  _ai2fa_info "Sending verification code..."
+  local result
+  result=$(bash "$AI2FA_SCRIPTS/send-otp.sh")
+
+  if [ "$result" != "SENT" ]; then
+    _ai2fa_err "Failed to send code: $result"
+    exit 1
+  fi
+
+  _ai2fa_ok "Code sent to $(channel_name 2>/dev/null || echo "$AI2FA_CHANNEL")"
+  echo ""
+
+  # Interactive: ask for the code
+  if command -v gum &>/dev/null; then
+    local code
+    code=$(gum input --placeholder "Enter the code from your device..." --char-limit 12)
+  else
+    echo -n "  Enter the code from your device: "
+    local code
+    read -r code
+  fi
+
+  result=$(bash "$AI2FA_SCRIPTS/verify-otp.sh" "$code" 2>&1) || true
+
+  echo ""
+  if [ "$result" = "VERIFIED" ]; then
+    _ai2fa_ok "Verification successful! Full flow works."
+  else
+    _ai2fa_err "Verification failed: $result"
+  fi
+  echo ""
+}
+
+cmd_setup() {
+  if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    help_setup; exit 0
+  fi
+
+  bash "$AI2FA_SCRIPTS/setup.sh"
+}
+
+# ─── Router ───────────────────────────────────────────────────────────
+
+main() {
+  local cmd="${1:-}"
+
+  case "$cmd" in
+    ""|-h|--help|help)
+      show_help
+      ;;
+    -v|--version|version)
+      show_version
+      ;;
+    setup)
+      shift; cmd_setup "$@"
+      ;;
+    send)
+      shift; cmd_send "$@"
+      ;;
+    verify)
+      shift; cmd_verify "$@"
+      ;;
+    phrase)
+      shift; cmd_phrase "$@"
+      ;;
+    check)
+      shift; cmd_check "$@"
+      ;;
+    status)
+      shift; cmd_status "$@"
+      ;;
+    test)
+      shift; cmd_test "$@"
+      ;;
+    *)
+      _ai2fa_err "Unknown command: $cmd"
+      echo "  Run 'ai2fa --help' for usage."
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
