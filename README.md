@@ -249,6 +249,11 @@ Run the built-in regression suite before shipping changes:
 bash scripts/selftest.sh
 ```
 
+## Release Notes
+
+- Current release notes: `docs/releases/v0.2.0.md`
+- Migration guide: `docs/migrations/v0.2.0.md`
+
 ## Config
 
 ```yaml
