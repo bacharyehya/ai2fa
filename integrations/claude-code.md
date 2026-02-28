@@ -54,4 +54,5 @@ The code never appears in the terminal. Someone at your keyboard without your ph
 - The `ai2fa verify` command exits with code 1 on failure, which Claude Code will see
 - Security defaults come from `security_level` (`low` by default)
 - You can override expiry, code length, attempts, and fail action in `~/.ai2fa/config.yaml`
+- If using TOTP mode, initialize once with `ai2fa totp setup`
 - For OS-level hard-stop on failure, set `fail_action: terminate_parent` in `~/.ai2fa/config.yaml`

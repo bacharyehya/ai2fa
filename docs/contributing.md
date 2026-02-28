@@ -27,6 +27,8 @@ channel_test() {
 - `channel_send <message>` — Send a message. Return 0 on success.
 - `channel_name` — Return human-readable name.
 - `channel_test` — Send a test message.
+- Use `_ai2fa_curl` instead of raw `curl` so timeout/retry policy is consistent.
+- For JSON payload channels, escape user-controlled text with `_ai2fa_json_escape`.
 
 ### Credential Access
 

@@ -37,4 +37,5 @@ that a check was performed.
 
 - Ensure `ai2fa` is in your PATH
 - Test with `ai2fa test` before adding to Cursor
+- If using TOTP mode, initialize once with `ai2fa totp setup`
 - Optional hard-stop mode: set `fail_action: terminate_parent` in `~/.ai2fa/config.yaml`

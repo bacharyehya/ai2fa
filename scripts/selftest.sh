@@ -654,6 +654,46 @@ SEC
   assert_eq "VERIFIED" "$out" "verify should fallback to totp when no challenge exists"
 }
 
+test_canary_matching_and_payload_escape() {
+  local dir fakebin payload out
+
+  dir="$(mkd)"
+  fakebin="$dir/fakebin"
+  mkdir -p "$fakebin"
+
+  cat > "$fakebin/curl" <<'CURL'
+#!/bin/bash
+set -euo pipefail
+if [ ! -t 0 ]; then
+  cat > "${AI2FA_TEST_PAYLOAD_FILE:-/tmp/ai2fa-payload}"
+fi
+printf "200"
+CURL
+  chmod +x "$fakebin/curl"
+
+  cat > "$dir/config.yaml" <<'YAML'
+channel: slack
+storage: env
+security_level: low
+YAML
+  cat > "$dir/secrets" <<'SEC'
+slack_webhook_url=https://example.test/hook
+canary_projects=Mirage,  Project "Alpha"  ,Shadow
+SEC
+  chmod 600 "$dir/secrets"
+
+  payload="$dir/payload.json"
+  out="$(AI2FA_TEST_PAYLOAD_FILE="$payload" AI2FA_CONFIG_DIR="$dir" PATH="$fakebin:/usr/bin:/bin" "$ROOT/scripts/canary-check.sh" 'Project "Alpha"' 2>&1)"
+  assert_eq "CANARY" "$out" "quoted canary should match"
+  assert_contains "$(cat "$payload")" 'Project \"Alpha\"' "payload should JSON-escape quoted project name"
+
+  out="$(AI2FA_TEST_PAYLOAD_FILE="$payload" AI2FA_CONFIG_DIR="$dir" PATH="$fakebin:/usr/bin:/bin" "$ROOT/scripts/canary-check.sh" "shadow" 2>&1)"
+  assert_eq "CANARY" "$out" "case-insensitive canary should match"
+
+  out="$(AI2FA_TEST_PAYLOAD_FILE="$payload" AI2FA_CONFIG_DIR="$dir" PATH="$fakebin:/usr/bin:/bin" "$ROOT/scripts/canary-check.sh" "not-a-canary" 2>&1)"
+  assert_eq "CLEAN" "$out" "non-canary should remain clean"
+}
+
 test_setup_non_gum_default_flow() {
   local dir
 
@@ -715,6 +755,7 @@ main() {
   run_test "phrase hash + legacy migration" test_phrase_hash_and_legacy_plaintext
   run_test "totp verify + replay" test_totp_verify_and_replay_protection
   run_test "verify fallback to totp" test_verify_fallback_to_totp
+  run_test "canary matching + payload escaping" test_canary_matching_and_payload_escape
   run_test "setup non-gum default flow" test_setup_non_gum_default_flow
   run_test "setup non-gum custom flow" test_setup_non_gum_custom_flow
   run_test "setup non-gum numeric retry flow" test_setup_invalid_numeric_retry

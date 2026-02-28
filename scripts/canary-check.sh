@@ -26,13 +26,17 @@ if [ -z "$CANARIES" ]; then
 fi
 
 # Check if the project matches any canary (case-insensitive)
-PROJECT_LOWER=$(echo "$PROJECT" | tr '[:upper:]' '[:lower:]')
+PROJECT_LOWER=$(printf '%s' "$PROJECT" | tr '[:upper:]' '[:lower:]')
 MATCH=false
 
 IFS=',' read -ra NAMES <<< "$CANARIES"
 for NAME in "${NAMES[@]}"; do
-  NAME_TRIMMED=$(echo "$NAME" | xargs) # trim whitespace
-  NAME_LOWER=$(echo "$NAME_TRIMMED" | tr '[:upper:]' '[:lower:]')
+  NAME_TRIMMED="$NAME"
+  NAME_TRIMMED="${NAME_TRIMMED#"${NAME_TRIMMED%%[![:space:]]*}"}"
+  NAME_TRIMMED="${NAME_TRIMMED%"${NAME_TRIMMED##*[![:space:]]}"}"
+  [ -z "$NAME_TRIMMED" ] && continue
+
+  NAME_LOWER=$(printf '%s' "$NAME_TRIMMED" | tr '[:upper:]' '[:lower:]')
   if [ "$PROJECT_LOWER" = "$NAME_LOWER" ]; then
     MATCH=true
     break

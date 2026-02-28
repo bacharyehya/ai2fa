@@ -6,6 +6,8 @@ Your AI agent has access to your codebase, your APIs, your secrets. But how does
 
 **ai2fa** verifies your identity through an out-of-band channel before your agent does any work. No code, no access.
 
+**Scope in one line:** ai2fa is a pragmatic local session gate for agent workflows, not endpoint security or enterprise IAM.
+
 ```
 ┌──────────────┐     ┌─────────────┐     ┌──────────────┐
 │              │     │             │     │              │
@@ -110,6 +112,15 @@ ai2fa setup
 | `ai2fa test` | Full end-to-end test |
 | `ai2fa --help` | Help |
 | `ai2fa --version` | Version |
+
+### TOTP Subcommands
+
+```bash
+ai2fa totp setup         # generate/store secret + print otpauth URI
+ai2fa totp verify 123456 # verify one authenticator code
+ai2fa totp status        # show mode + configured state
+ai2fa totp disable       # remove secret + replay state
+```
 
 ## Channels
 
@@ -284,6 +295,11 @@ Setup and verify:
 ai2fa totp setup
 ai2fa totp verify 123456
 ```
+
+Behavior by mode:
+- `off`: `ai2fa verify` only checks active challenge codes.
+- `fallback`: `ai2fa verify` checks challenge codes first; if no challenge exists, it accepts TOTP.
+- `required`: `ai2fa verify` always checks TOTP (challenge state ignored).
 
 ### Optional Hard-Fail Mode
 

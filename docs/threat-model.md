@@ -36,6 +36,7 @@ A user-level identity verification layer for AI coding agents. It answers one qu
 | **Offline cracking of challenge file** | Read local challenge state and brute-force | Challenge state stores only HMAC output; secret HMAC key lives in secure storage |
 | **Policy bypass via prompt injection** | Attacker tries to talk the model into ignoring FAILED state | Optional `fail_action: terminate_parent` enforces hard-stop at process level |
 | **Credential exposure** | AI agent accidentally prints secrets | OTP never appears in terminal output — only "SENT" |
+| **Channel delivery hangs** | Slow/broken API endpoint stalls verification flow | Channel requests use bounded timeouts and retries by default |
 
 ### Threats NOT Mitigated
 
