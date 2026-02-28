@@ -89,7 +89,7 @@ storage_name() {
 
 ## Code Style
 
-- Pure bash, no external dependencies beyond `bash`, `curl`, `openssl`, `shasum`
+- Pure bash, no external dependencies beyond `bash`, `curl`, `openssl`
 - `set -euo pipefail` in all scripts
 - Use `_ai2fa_` prefix for internal functions
 - Respect `NO_COLOR` env var
@@ -98,10 +98,13 @@ storage_name() {
 ## Testing
 
 ```bash
-# Full end-to-end test
+# Full regression suite (same checks as CI)
+bash scripts/selftest.sh
+
+# Manual channel flow
 ai2fa test
 
-# Check status
+# Runtime health
 ai2fa status
 ```
 

@@ -12,11 +12,12 @@ A user-level identity verification layer for AI coding agents. It answers one qu
 │  (untrusted │────▶│  (generates  │────▶│  (Telegram,  │
 │   input)    │     │   OTP,       │     │   Slack...)  │
 │             │     │   stores     │     │             │
-│             │     │   hash only) │     │  → user's   │
-│             │     │             │     │    device    │
+│             │     │   keyed      │     │  → user's   │
+│             │     │   digest)    │     │    device    │
+│             │     │             │     │              │
 └─────────────┘     └──────┬──────┘     └─────────────┘
                            │
-                    Hash comparison
+                    HMAC comparison
                     (never stores code)
 ```
 
@@ -29,8 +30,10 @@ A user-level identity verification layer for AI coding agents. It answers one qu
 | **Unauthorized terminal use** | Someone sits at your unlocked machine | They can't provide the OTP from your phone |
 | **Config theft** | Someone copies your `.claude/` directory | Challenge phrase is in Keychain/pass, not plaintext. Canary traps detect them. |
 | **Social engineering** | Someone impersonates you to the AI agent | They can't intercept the OOB code |
-| **Replay attacks** | Reuse a previously valid code | Codes expire (default 5 min), hash deleted after use |
-| **Brute force** | Guess the code | 6-char hex = 16,777,216 possibilities. One guess per AI prompt. Not viable. |
+| **Replay attacks** | Reuse a previously valid code | Codes expire (default 5 min), challenge state deleted after use |
+| **Brute force** | Guess the code | Online guesses lock after configurable failed attempts (default 3) and challenge expires quickly |
+| **Offline cracking of challenge file** | Read local challenge state and brute-force | Challenge state stores only HMAC output; secret HMAC key lives in secure storage |
+| **Policy bypass via prompt injection** | Attacker tries to talk the model into ignoring FAILED state | Optional `fail_action: terminate_parent` enforces hard-stop at process level |
 | **Credential exposure** | AI agent accidentally prints secrets | OTP never appears in terminal output — only "SENT" |
 
 ### Threats NOT Mitigated
@@ -47,18 +50,19 @@ A user-level identity verification layer for AI coding agents. It answers one qu
 
 ### Code Never Exposed
 
-The verification code is generated, immediately hashed, and the original is sent via API call. At no point does the code appear in:
+The verification code is generated, immediately HMACed, and the original is sent via API call. At no point does the code appear in:
 - Terminal stdout/stderr
 - Log files
 - Process listing (`ps`)
 - Shell history
-- Local storage (only the SHA-256 hash is written to `/tmp/`)
+- Local challenge state (only keyed digest + timestamp + attempts are written)
 
-### Hash-Only Storage
+### Challenge State Storage
 
-The temp file at `/tmp/.ai2fa_<uid>` contains:
-1. SHA-256 hash of the code (line 1)
-2. Unix timestamp of generation (line 2)
+The challenge file at `~/.ai2fa/challenge.state` contains:
+1. HMAC-SHA256 digest of the code
+2. Unix timestamp of generation
+3. Attempt counter
 
 File permissions: `chmod 600` (owner-only read/write).
 
@@ -68,6 +72,8 @@ Channel credentials (API tokens, webhook URLs) are stored in:
 - **macOS:** Keychain (encrypted, requires user password/biometric to access)
 - **Linux:** `pass` (GPG-encrypted)
 - **Fallback:** `~/.ai2fa/secrets` with `chmod 600` (least secure)
+
+The OTP HMAC key (`otp_hmac_key`) is stored in the same secure backend.
 
 Never stored in config.yaml or any plaintext file.
 
@@ -92,3 +98,5 @@ When triggered:
 3. **Lock your screen** — ai2fa protects against "walk-up" attacks, but prevention is better
 4. **Don't share your OOB channel** — the Telegram chat, Slack DM, etc. should be private to you
 5. **Review your agent's config regularly** — ensure the verification instructions haven't been tampered with
+6. **Pick a security level that matches your tolerance** — `balanced` for daily use, `strict/paranoid` for higher-risk contexts
+7. **Choose a failure policy intentionally** — `none` for soft-fail, `terminate_parent` for hard-fail enforcement

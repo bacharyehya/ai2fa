@@ -1,0 +1,25 @@
+name: ai2fa selftest
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  selftest:
+    name: selftest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run self-test suite
+        run: bash scripts/selftest.sh

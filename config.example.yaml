@@ -10,11 +10,24 @@ channel: telegram
 # Options: keychain (macOS), pass (Linux), env (fallback)
 # storage: keychain
 
-# Code expiry in seconds (default: 300 = 5 minutes)
-# expiry: 300
+# Security level presets
+# - relaxed: easy typing, longer expiry, softer lockout
+# - balanced: recommended default
+# - strict: longer code, tighter lockout
+# - paranoid: strictest + hard parent termination on failed verify
+# security_level: balanced
 
-# Code length in bytes (default: 3 = 6 hex characters)
-# code_length: 3
+# Optional overrides (set only if you need custom tuning)
+# Code expiry in seconds
+# expiry: 300
+# Code length in bytes
+# code_length: 6
+# Maximum failed verify attempts before lockout
+# max_attempts: 3
+# Failure behavior override
+# - none: return FAILED and let caller enforce policy
+# - terminate_parent: return FAILED, alert channel, and signal parent process
+# fail_action: none
 
 # Channel-specific settings can go here, but credentials
 # should be stored in your OS secret store (Keychain/pass),

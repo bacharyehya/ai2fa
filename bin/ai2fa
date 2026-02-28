@@ -47,7 +47,7 @@ show_help() {
   QUICK START
     $ ai2fa setup          # Configure your channel + secrets
     $ ai2fa send           # Send a code to your phone
-    $ ai2fa verify A1B2C3  # Verify it
+    $ ai2fa verify A1B2C3D4E5F6  # Verify it
 
   CHANNELS
     telegram           Telegram Bot API (recommended)
@@ -70,14 +70,14 @@ help_send() {
   cat <<'EOF'
   ai2fa send — Send a verification code
 
-  Generates a random code, hashes it (only the hash is stored locally),
+  Generates a random code, stores only a keyed digest in challenge state,
   and sends the actual code to your configured out-of-band channel.
   The code never appears in the terminal.
 
   USAGE
     ai2fa send
 
-  The code expires after the configured timeout (default: 5 minutes).
+  The code expires after the configured timeout (balanced default: 5 minutes).
 EOF
 }
 
@@ -88,10 +88,15 @@ help_verify() {
   USAGE
     ai2fa verify <CODE>
 
-  Takes the code the user received on their device, hashes it,
-  and compares against the stored hash. Returns:
+  Takes the code the user received on their device, computes a keyed digest,
+  and compares against the stored challenge digest. Returns:
     VERIFIED       — correct code
-    FAILED:*       — wrong code, expired, or no active challenge
+    FAILED:*       — wrong code, expired, locked, or no active challenge
+
+  Input normalization ignores spaces and dashes (e.g. A1B2-C3D4 E5F6).
+
+  If config sets fail_action: terminate_parent, FAILED also sends an alert
+  (when channel is configured) and signals the parent process.
 EOF
 }
 
@@ -132,9 +137,10 @@ help_setup() {
   Walks you through configuring:
     1. Out-of-band channel (Telegram, Slack, Discord, Email)
     2. Channel credentials
-    3. Storage backend (auto-detected)
+    3. Security level (`relaxed`, `balanced`, `strict`, `paranoid`)
     4. Challenge phrase (optional)
     5. Canary projects (optional)
+    6. Security customization (optional overrides)
 
   If 'gum' (charmbracelet/gum) is installed, you get a beautiful TUI.
   Otherwise, plain interactive prompts.
@@ -235,8 +241,11 @@ cmd_status() {
   echo -e "  ${AI2FA_DIM}Config${AI2FA_RESET}    $AI2FA_CONFIG_FILE"
   echo -e "  ${AI2FA_DIM}Channel${AI2FA_RESET}   ${AI2FA_CHANNEL:-${AI2FA_YELLOW}not configured${AI2FA_RESET}}"
   echo -e "  ${AI2FA_DIM}Storage${AI2FA_RESET}   ${AI2FA_STORAGE} ($(storage_name))"
+  echo -e "  ${AI2FA_DIM}Level${AI2FA_RESET}     ${AI2FA_SECURITY_LEVEL}"
   echo -e "  ${AI2FA_DIM}Expiry${AI2FA_RESET}    ${AI2FA_EXPIRY}s"
   echo -e "  ${AI2FA_DIM}Code len${AI2FA_RESET}  ${AI2FA_CODE_LENGTH} bytes ($(( AI2FA_CODE_LENGTH * 2 )) hex chars)"
+  echo -e "  ${AI2FA_DIM}Attempts${AI2FA_RESET}  ${AI2FA_MAX_ATTEMPTS} max per challenge"
+  echo -e "  ${AI2FA_DIM}Fail mode${AI2FA_RESET} ${AI2FA_FAIL_ACTION}"
   echo ""
 
   # Check credentials
@@ -246,28 +255,28 @@ cmd_status() {
         if storage_exists "telegram_bot_token" && storage_exists "telegram_chat_id"; then
           _ai2fa_ok "Telegram credentials configured"
         else
-          _ai2fa_err "Telegram credentials missing"
+          _ai2fa_warn "Telegram credentials missing"
         fi
         ;;
       slack)
         if storage_exists "slack_webhook_url"; then
           _ai2fa_ok "Slack webhook configured"
         else
-          _ai2fa_err "Slack webhook missing"
+          _ai2fa_warn "Slack webhook missing"
         fi
         ;;
       discord)
         if storage_exists "discord_webhook_url"; then
           _ai2fa_ok "Discord webhook configured"
         else
-          _ai2fa_err "Discord webhook missing"
+          _ai2fa_warn "Discord webhook missing"
         fi
         ;;
       email)
         if storage_exists "email_to"; then
           _ai2fa_ok "Email recipient configured"
         else
-          _ai2fa_err "Email recipient missing"
+          _ai2fa_warn "Email recipient missing"
         fi
         ;;
     esac
@@ -287,18 +296,24 @@ cmd_status() {
   fi
 
   # Check for active challenge
-  local store="/tmp/.ai2fa_$(id -u)"
-  if [ -f "$store" ]; then
+  if [ -f "$AI2FA_CHALLENGE_FILE" ]; then
     local stored_time
-    stored_time=$(tail -1 "$store")
+    stored_time=$(sed -n 's/^TIMESTAMP=//p' "$AI2FA_CHALLENGE_FILE" | head -1)
+    local attempts
+    attempts=$(sed -n 's/^ATTEMPTS=//p' "$AI2FA_CHALLENGE_FILE" | head -1)
+    [ -z "$attempts" ] && attempts=0
     local current_time
     current_time=$(date +%s)
-    local elapsed=$(( current_time - stored_time ))
-    if [ "$elapsed" -lt "$AI2FA_EXPIRY" ]; then
-      local remaining=$(( AI2FA_EXPIRY - elapsed ))
-      _ai2fa_warn "Active challenge (${remaining}s remaining)"
+    if [[ "$stored_time" =~ ^[0-9]+$ ]]; then
+      local elapsed=$(( current_time - stored_time ))
+      if [ "$elapsed" -lt "$AI2FA_EXPIRY" ]; then
+        local remaining=$(( AI2FA_EXPIRY - elapsed ))
+        _ai2fa_warn "Active challenge (${remaining}s remaining, attempts: ${attempts}/${AI2FA_MAX_ATTEMPTS})"
+      else
+        _ai2fa_info "Expired challenge pending cleanup"
+      fi
     else
-      _ai2fa_info "Expired challenge pending cleanup"
+      _ai2fa_warn "Challenge state is invalid (will reset on next send)"
     fi
   fi
 

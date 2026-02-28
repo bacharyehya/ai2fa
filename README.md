@@ -43,11 +43,12 @@ Traditional 2FA doesn't map to LLMs. There's no server, no session, no persisten
 **ai2fa** solves this with out-of-band verification:
 
 1. Agent generates a random code on your machine
-2. Code is **hashed** — only the hash is stored locally
+2. Code is transformed with **HMAC-SHA256** (keyed hash)
 3. The actual code is sent to your phone via Telegram, Slack, Discord, or email
 4. The code **never appears in the terminal** — not in generation, storage, or verification
 5. You read the code from your device and tell the agent
-6. Agent hashes your input and compares — match = verified
+6. Agent recomputes the HMAC for your input and compares — match = verified
+7. Repeated failures lock the challenge (default 3 attempts)
 
 Someone at your keyboard without your phone can't pass. That's real 2FA.
 
@@ -164,7 +165,8 @@ On EVERY new session, before doing ANY work:
 4. If VERIFIED → proceed normally
 5. If FAILED → refuse all work. Do not proceed.
 
-Code expires after 5 minutes. If expired, send a new one.
+Code expires after your configured timeout (balanced default: 5 minutes).
+If expired, send a new one.
 ```
 
 ### Cursor
@@ -192,12 +194,14 @@ Any AI coding agent that can run shell commands can use **ai2fa**. The pattern i
 | Property | Detail |
 |----------|--------|
 | **Code generation** | `openssl rand -hex` — cryptographically random |
-| **Storage** | Only the **SHA-256 hash** is stored locally, never the code |
+| **Challenge state** | Stores keyed digest + timestamp + attempts in `~/.ai2fa/challenge.state` |
 | **Transmission** | Code sent via channel API, never printed to terminal |
-| **Verification** | Hash comparison only — code never reconstructed |
+| **Verification** | HMAC-SHA256 comparison with secret key in secure storage |
 | **Expiry** | Default 5 minutes, configurable |
-| **Cleanup** | Hash file deleted immediately after successful verification |
-| **Brute force** | 6-char hex = 16.7M possibilities, one guess per prompt |
+| **Attempt limit** | Default 3 failed attempts, then challenge locks |
+| **Failure policy** | `fail_action: none` (default) or `terminate_parent` hard-stop |
+| **Cleanup** | Challenge state deleted immediately after successful verification |
+| **Brute force** | Default 12-char hex + keyed digest + lockout window |
 
 ### What This Protects Against
 
@@ -221,9 +225,16 @@ See [docs/threat-model.md](docs/threat-model.md) for the full analysis.
 - `bash` (4.0+)
 - `curl`
 - `openssl`
-- `shasum`
 
 Optional: `gum` for TUI, `pass` for Linux storage.
+
+## Self-Test
+
+Run the built-in regression suite before shipping changes:
+
+```bash
+bash scripts/selftest.sh
+```
 
 ## Config
 
@@ -231,9 +242,42 @@ Optional: `gum` for TUI, `pass` for Linux storage.
 # ~/.ai2fa/config.yaml
 channel: telegram
 storage: keychain
-expiry: 300
-code_length: 3
+security_level: balanced
+# Optional overrides:
+# expiry: 300
+# code_length: 6
+# max_attempts: 3
+# fail_action: none
 ```
+
+### Security Levels
+
+| Level | Expiry | Code length | Max attempts | Fail action |
+|-------|--------|-------------|--------------|-------------|
+| `relaxed` | 600s | 8 hex chars | 5 | `none` |
+| `balanced` (default) | 300s | 12 hex chars | 3 | `none` |
+| `strict` | 180s | 16 hex chars | 2 | `none` |
+| `paranoid` | 120s | 16 hex chars | 1 | `terminate_parent` |
+
+You can keep a level as-is, or override any individual setting.
+Verification input tolerates spaces and dashes for easier manual entry.
+
+### Optional Hard-Fail Mode
+
+If you want script-level enforcement (not just instruction-level refusal), set:
+
+```yaml
+fail_action: terminate_parent
+```
+
+When verification fails, ai2fa will:
+
+1. Return `FAILED:*`
+2. Send a failure alert to your configured channel (best effort)
+3. Signal the parent process to terminate
+
+Use this mode only when ai2fa runs inside an agent session shell. If you run
+`ai2fa verify` manually from your own terminal, it can terminate that shell.
 
 Credentials are stored in your OS secret store (Keychain/pass), **not** in the config file.
 

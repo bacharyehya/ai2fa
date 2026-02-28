@@ -22,11 +22,10 @@ channel_send() {
   fi
 
   local response
-  response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+  response=$(printf '%s' "$message" | curl -s -o /dev/null -w "%{http_code}" -X POST \
     "https://api.telegram.org/bot${bot_token}/sendMessage" \
-    -d chat_id="$chat_id" \
-    -d text="$message" \
-    -d parse_mode="HTML")
+    --data-urlencode "chat_id=${chat_id}" \
+    --data-urlencode text@-)
 
   if [ "$response" = "200" ]; then
     return 0

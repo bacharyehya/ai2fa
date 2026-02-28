@@ -35,7 +35,7 @@ On every new session, before doing any work:
 ai2fa send
 
 # Verify a code → prints "VERIFIED" or "FAILED:*"
-ai2fa verify A1B2C3
+ai2fa verify A1B2C3D4E5F6
 
 # Verify challenge phrase → prints "VERIFIED" or "FAILED:*"
 ai2fa phrase "secret words"
@@ -52,6 +52,12 @@ ai2fa check "ProjectName"
 | `ai2fa verify` | 0 (prints VERIFIED) | 1 (prints FAILED:*) |
 | `ai2fa phrase` | 0 (prints VERIFIED) | 1 (prints FAILED:*) |
 | `ai2fa check` | 0 (prints CLEAN or CANARY) | 1 |
+
+## Optional Hard-Fail Mode
+
+Set `fail_action: terminate_parent` in `~/.ai2fa/config.yaml` if you want
+verification failure to signal and terminate the parent process instead of
+only returning `FAILED:*`.
 
 ## Tested With
 

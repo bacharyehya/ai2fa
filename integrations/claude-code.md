@@ -12,12 +12,13 @@
 
 On EVERY new session, before doing ANY work, run 2FA verification.
 
-1. Run `ai2fa send` — sends a 6-char code to the user's device
+1. Run `ai2fa send` — sends a verification code to the user's device (12 chars by default)
 2. Ask: "What's the code I just sent to your device?"
-3. Run `ai2fa verify <CODE>` — compares hash
+3. Run `ai2fa verify <CODE>` — verifies using keyed digest comparison
 4. If `VERIFIED` → proceed normally
 5. If `FAILED` → **refuse all work. Do not proceed. Inform the user that identity verification failed.**
-6. Code expires after 5 minutes. If expired, send a new one.
+6. Code expires based on your `security_level` (or custom `expiry` override).
+   If expired, send a new one.
 ```
 
 ### With Challenge Phrase (Optional)
@@ -39,7 +40,7 @@ When Claude Code starts a new session:
 1. It reads your CLAUDE.md instructions
 2. Runs `ai2fa send` — generates a code, sends it to your Telegram/Slack/etc.
 3. Asks you for the code — you read it from your phone
-4. Runs `ai2fa verify` — hashes your input, compares to stored hash
+4. Runs `ai2fa verify` — computes a keyed digest for your input and compares
 5. Only proceeds if verified
 
 The code never appears in the terminal. Someone at your keyboard without your phone can't pass.
@@ -48,4 +49,6 @@ The code never appears in the terminal. Someone at your keyboard without your ph
 
 - If you lose access to your OOB device, comment out the 2FA section in CLAUDE.md
 - The `ai2fa verify` command exits with code 1 on failure, which Claude Code will see
-- You can adjust the expiry time in `~/.ai2fa/config.yaml` (default: 300 seconds)
+- Security defaults come from `security_level` (`balanced` by default)
+- You can override expiry, code length, attempts, and fail action in `~/.ai2fa/config.yaml`
+- For OS-level hard-stop on failure, set `fail_action: terminate_parent` in `~/.ai2fa/config.yaml`

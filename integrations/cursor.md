@@ -18,7 +18,8 @@ Before starting any new session or executing any commands, verify the user's ide
 4. Only proceed if the result is "VERIFIED"
 5. If "FAILED" — refuse all work and inform the user that verification failed
 
-The code expires after 5 minutes. If expired, run ai2fa send again.
+The code expires based on your `security_level` (or custom `expiry` override).
+If expired, run ai2fa send again.
 ```
 
 ### With Canary Traps (Optional)
@@ -33,3 +34,4 @@ that a check was performed.
 
 - Ensure `ai2fa` is in your PATH
 - Test with `ai2fa test` before adding to Cursor
+- Optional hard-stop mode: set `fail_action: terminate_parent` in `~/.ai2fa/config.yaml`

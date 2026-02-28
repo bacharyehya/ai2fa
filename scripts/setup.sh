@@ -23,17 +23,25 @@ _prompt_choice() {
   if $HAS_GUM; then
     gum choose --header "$prompt" "${options[@]}"
   else
-    echo "" >&2
-    echo "  $prompt" >&2
-    local i=1
-    for opt in "${options[@]}"; do
-      echo "  $i) $opt" >&2
-      i=$((i + 1))
+    while true; do
+      echo "" >&2
+      echo "  $prompt" >&2
+      local i=1
+      for opt in "${options[@]}"; do
+        echo "  $i) $opt" >&2
+        i=$((i + 1))
+      done
+      echo -n "  Choice [1-${#options[@]}]: " >&2
+      local choice
+      read -r choice
+
+      if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#options[@]}" ]; then
+        echo "${options[$((choice - 1))]}"
+        return
+      fi
+
+      echo "  Invalid choice. Please enter a number between 1 and ${#options[@]}." >&2
     done
-    echo -n "  Choice [1-${#options[@]}]: " >&2
-    local choice
-    read -r choice
-    echo "${options[$((choice - 1))]}"
   fi
 }
 
@@ -49,6 +57,25 @@ _prompt_input() {
     read -r input
     echo "$input"
   fi
+}
+
+_prompt_number() {
+  local prompt="$1"
+  local default_value="$2"
+  local min_value="${3:-1}"
+
+  while true; do
+    local value
+    value=$(_prompt_input "$prompt" "$default_value")
+    [ -z "$value" ] && value="$default_value"
+
+    if [[ "$value" =~ ^[0-9]+$ ]] && [ "$value" -ge "$min_value" ]; then
+      echo "$value"
+      return
+    fi
+
+    echo "  Please enter a whole number >= ${min_value}." >&2
+  done
 }
 
 _prompt_password() {
@@ -192,9 +219,32 @@ main() {
       ;;
   esac
 
-  # ── Step 3: Challenge phrase (optional) ──
+  # ── Step 3: Security level ──
 
-  _header "Step 3: Challenge phrase (optional)"
+  _header "Step 3: Security level"
+  echo "  Choose how strict verification should be by default:"
+  echo "    relaxed  → easier typing, softer lockout"
+  echo "    balanced → recommended default"
+  echo "    strict   → longer codes, tighter lockout"
+  echo "    paranoid → strictest + hard parent termination on failure"
+  echo ""
+
+  local security_level
+  security_level=$(_prompt_choice "Select security level:" "relaxed" "balanced" "strict" "paranoid")
+
+  # Recompute security knobs from selected profile.
+  AI2FA_SECURITY_LEVEL="$security_level"
+  AI2FA_EXPIRY=""
+  AI2FA_CODE_LENGTH=""
+  AI2FA_MAX_ATTEMPTS=""
+  AI2FA_FAIL_ACTION=""
+  _ai2fa_apply_security_level
+
+  _ai2fa_ok "Level: $AI2FA_SECURITY_LEVEL (expiry=${AI2FA_EXPIRY}s, code=$((AI2FA_CODE_LENGTH * 2)) chars, attempts=${AI2FA_MAX_ATTEMPTS}, fail_action=${AI2FA_FAIL_ACTION})"
+
+  # ── Step 4: Challenge phrase (optional) ──
+
+  _header "Step 4: Challenge phrase (optional)"
   echo "  A secret phrase only you know. Your AI agent can ask for it"
   echo "  as an additional identity check."
   echo ""
@@ -210,9 +260,9 @@ main() {
     _ai2fa_info "Skipped — you can add one later with 'ai2fa setup'"
   fi
 
-  # ── Step 4: Canary projects (optional) ──
+  # ── Step 5: Canary projects (optional) ──
 
-  _header "Step 4: Canary projects (optional)"
+  _header "Step 5: Canary projects (optional)"
   echo "  Fake project names to plant in your AI agent's config."
   echo "  If anyone references them, it reveals they stole your config."
   echo ""
@@ -228,11 +278,30 @@ main() {
     _ai2fa_info "Skipped — you can add them later with 'ai2fa setup'"
   fi
 
-  # ── Step 5: Write config file ──
+  # ── Step 6: Security customization (optional) ──
 
-  _header "Step 5: Saving configuration"
+  _header "Step 6: Security customization (optional)"
+  echo "  You can keep profile defaults, or customize every security knob."
+  echo ""
+
+  local customize_security
+  customize_security=$(_prompt_confirm "Customize expiry/code length/attempts/fail action?")
+  if [ "$customize_security" = "yes" ]; then
+    AI2FA_EXPIRY=$(_prompt_number "Expiry (seconds):" "$AI2FA_EXPIRY" "30")
+    AI2FA_CODE_LENGTH=$(_prompt_number "Code length (bytes):" "$AI2FA_CODE_LENGTH" "1")
+    AI2FA_MAX_ATTEMPTS=$(_prompt_number "Max failed attempts:" "$AI2FA_MAX_ATTEMPTS" "1")
+    AI2FA_FAIL_ACTION=$(_prompt_choice "Fail action:" "none" "terminate_parent")
+    _ai2fa_ok "Custom security set (expiry=${AI2FA_EXPIRY}s, code=$((AI2FA_CODE_LENGTH * 2)) chars, attempts=${AI2FA_MAX_ATTEMPTS}, fail_action=${AI2FA_FAIL_ACTION})"
+  else
+    _ai2fa_info "Using $AI2FA_SECURITY_LEVEL defaults."
+  fi
+
+  # ── Step 7: Write config file ──
+
+  _header "Step 7: Saving configuration"
 
   mkdir -p "$AI2FA_CONFIG_DIR"
+  chmod 700 "$AI2FA_CONFIG_DIR" 2>/dev/null || true
 
   cat > "$AI2FA_CONFIG_FILE" <<YAML
 # ai2fa configuration
@@ -240,16 +309,24 @@ main() {
 
 channel: $channel
 storage: $AI2FA_STORAGE
+security_level: $AI2FA_SECURITY_LEVEL
+YAML
+
+  if [ "$customize_security" = "yes" ]; then
+    cat >> "$AI2FA_CONFIG_FILE" <<YAML
 expiry: $AI2FA_EXPIRY
 code_length: $AI2FA_CODE_LENGTH
+max_attempts: $AI2FA_MAX_ATTEMPTS
+fail_action: $AI2FA_FAIL_ACTION
 YAML
+  fi
 
   chmod 600 "$AI2FA_CONFIG_FILE"
   _ai2fa_ok "Config written to $AI2FA_CONFIG_FILE"
 
-  # ── Step 6: Test ──
+  # ── Step 8: Test ──
 
-  _header "Step 6: Test the connection"
+  _header "Step 8: Test the connection"
 
   local run_test
   run_test=$(_prompt_confirm "Send a test code now?")
