@@ -20,6 +20,9 @@ Before starting any new session or executing any commands, verify the user's ide
 
 The code expires based on your `security_level` (or custom `expiry` override).
 If expired, run ai2fa send again.
+
+Optional fallback:
+6. If configured, allow `ai2fa verify <6-digit-totp>` when no active challenge exists.
 ```
 
 ### With Canary Traps (Optional)

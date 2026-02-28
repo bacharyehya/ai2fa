@@ -8,6 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_config.sh
 source "$SCRIPT_DIR/_config.sh"
 _ai2fa_load_storage
+# shellcheck source=_totp.sh
+source "$SCRIPT_DIR/_totp.sh"
 
 USER_CODE="${1:-}"
 
@@ -72,7 +74,40 @@ if [ -z "$USER_CODE" ]; then
   _fail_verify "NO_INPUT" "false" "false"
 fi
 
+NORMALIZED_CODE=$(printf '%s' "$USER_CODE" | tr -d '[:space:]-' | tr '[:lower:]' '[:upper:]')
+if [ -z "$NORMALIZED_CODE" ]; then
+  _fail_verify "NO_INPUT" "false" "false"
+fi
+
+_verify_via_totp_or_fail() {
+  local out
+  local rc
+
+  set +e
+  out=$(bash "$SCRIPT_DIR/verify-totp.sh" "$NORMALIZED_CODE" 2>&1)
+  rc=$?
+  set -e
+
+  if [ "$rc" -eq 0 ] && [ "$out" = "VERIFIED" ]; then
+    echo "VERIFIED"
+    exit 0
+  fi
+
+  if [[ "$out" =~ ^FAILED: ]]; then
+    _fail_verify "${out#FAILED:}"
+  fi
+
+  _fail_verify "WRONG_TOTP"
+}
+
+if [ "$AI2FA_TOTP_MODE" = "required" ]; then
+  _verify_via_totp_or_fail
+fi
+
 if [ ! -f "$AI2FA_CHALLENGE_FILE" ]; then
+  if [ "$AI2FA_TOTP_MODE" = "fallback" ]; then
+    _verify_via_totp_or_fail
+  fi
   _fail_verify "NO_CHALLENGE"
 fi
 
@@ -114,13 +149,9 @@ if [ -z "$HMAC_KEY" ] || ! [[ "$HMAC_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
   _fail_verify "KEY_MISSING"
 fi
 
-NORMALIZED_CODE=$(printf '%s' "$USER_CODE" | tr -d '[:space:]-' | tr '[:lower:]' '[:upper:]')
-if [ -z "$NORMALIZED_CODE" ]; then
-  _fail_verify "NO_INPUT" "false" "false"
-fi
 USER_MAC=$(printf '%s' "$NORMALIZED_CODE" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$HMAC_KEY" | awk '{print $NF}')
 
-if [ "$STORED_MAC" = "$USER_MAC" ]; then
+if _ai2fa_secure_compare "$STORED_MAC" "$USER_MAC"; then
   rm -f "$AI2FA_CHALLENGE_FILE"
   echo "VERIFIED"
 else

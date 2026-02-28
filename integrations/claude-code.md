@@ -12,13 +12,16 @@
 
 On EVERY new session, before doing ANY work, run 2FA verification.
 
-1. Run `ai2fa send` — sends a verification code to the user's device (12 chars by default)
+1. Run `ai2fa send` — sends a verification code to the user's device (12 chars in `low` profile)
 2. Ask: "What's the code I just sent to your device?"
 3. Run `ai2fa verify <CODE>` — verifies using keyed digest comparison
 4. If `VERIFIED` → proceed normally
 5. If `FAILED` → **refuse all work. Do not proceed. Inform the user that identity verification failed.**
 6. Code expires based on your `security_level` (or custom `expiry` override).
    If expired, send a new one.
+
+Optional fallback when no challenge exists:
+7. If policy allows TOTP fallback, run `ai2fa verify <6-digit-code>` and continue only on `VERIFIED`.
 ```
 
 ### With Challenge Phrase (Optional)
@@ -49,6 +52,6 @@ The code never appears in the terminal. Someone at your keyboard without your ph
 
 - If you lose access to your OOB device, comment out the 2FA section in CLAUDE.md
 - The `ai2fa verify` command exits with code 1 on failure, which Claude Code will see
-- Security defaults come from `security_level` (`balanced` by default)
+- Security defaults come from `security_level` (`low` by default)
 - You can override expiry, code length, attempts, and fail action in `~/.ai2fa/config.yaml`
 - For OS-level hard-stop on failure, set `fail_action: terminate_parent` in `~/.ai2fa/config.yaml`

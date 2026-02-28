@@ -82,14 +82,15 @@ storage_name() {
 
 ### Storage Contract
 
-- Keys are simple strings like `telegram_bot_token`, `challenge_phrase`
+- Keys are simple strings like `telegram_bot_token`, `challenge_phrase_hash`, `totp_secret`
 - Values are strings (no binary)
 - `storage_get` returns empty string if key doesn't exist
 - `storage_exists` returns exit code 0/1
 
 ## Code Style
 
-- Pure bash, no external dependencies beyond `bash`, `curl`, `openssl`
+- Pure bash for core flow; optional TOTP helpers use `python3`
+- Core runtime dependencies: `bash`, `curl`, `openssl`
 - `set -euo pipefail` in all scripts
 - Use `_ai2fa_` prefix for internal functions
 - Respect `NO_COLOR` env var

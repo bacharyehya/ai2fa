@@ -104,6 +104,7 @@ ai2fa setup
 | `ai2fa send` | Send a verification code to your channel |
 | `ai2fa verify <CODE>` | Verify a code |
 | `ai2fa phrase <TEXT>` | Verify your challenge phrase |
+| `ai2fa totp <subcommand>` | Manage authenticator app TOTP |
 | `ai2fa check <NAME>` | Check a project name (canary trap) |
 | `ai2fa status` | Show config and health |
 | `ai2fa test` | Full end-to-end test |
@@ -165,7 +166,7 @@ On EVERY new session, before doing ANY work:
 4. If VERIFIED → proceed normally
 5. If FAILED → refuse all work. Do not proceed.
 
-Code expires after your configured timeout (balanced default: 5 minutes).
+Code expires after your configured timeout (low default: 5 minutes).
 If expired, send a new one.
 ```
 
@@ -199,6 +200,7 @@ Any AI coding agent that can run shell commands can use **ai2fa**. The pattern i
 | **Verification** | HMAC-SHA256 comparison with secret key in secure storage |
 | **Expiry** | Default 5 minutes, configurable |
 | **Attempt limit** | Default 3 failed attempts, then challenge locks |
+| **TOTP (optional)** | Authenticator app with replay protection (`totp_last_counter`) |
 | **Failure policy** | `fail_action: none` (default) or `terminate_parent` hard-stop |
 | **Cleanup** | Challenge state deleted immediately after successful verification |
 | **Brute force** | Default 12-char hex + keyed digest + lockout window |
@@ -206,7 +208,7 @@ Any AI coding agent that can run shell commands can use **ai2fa**. The pattern i
 ### What This Protects Against
 
 - Someone at your unlocked machine without your phone
-- Stolen/leaked agent config files (challenge phrase in secure storage, not plaintext)
+- Stolen/leaked agent config files (challenge phrase stored as salted hash)
 - Unauthorized use of your AI agent's capabilities
 - Config theft detection (via canary traps)
 
@@ -220,13 +222,13 @@ See [docs/threat-model.md](docs/threat-model.md) for the full analysis.
 
 ## Dependencies
 
-**Zero external dependencies.** Uses only tools pre-installed on macOS and Linux:
+Core flow uses common pre-installed tools:
 
 - `bash` (4.0+)
 - `curl`
 - `openssl`
 
-Optional: `gum` for TUI, `pass` for Linux storage.
+Optional: `gum` for TUI, `pass` for Linux storage, `python3` for TOTP mode.
 
 ## Self-Test
 
@@ -242,7 +244,9 @@ bash scripts/selftest.sh
 # ~/.ai2fa/config.yaml
 channel: telegram
 storage: keychain
-security_level: balanced
+security_level: low
+totp_mode: off
+totp_window: 1
 # Optional overrides:
 # expiry: 300
 # code_length: 6
@@ -254,13 +258,32 @@ security_level: balanced
 
 | Level | Expiry | Code length | Max attempts | Fail action |
 |-------|--------|-------------|--------------|-------------|
-| `relaxed` | 600s | 8 hex chars | 5 | `none` |
-| `balanced` (default) | 300s | 12 hex chars | 3 | `none` |
-| `strict` | 180s | 16 hex chars | 2 | `none` |
-| `paranoid` | 120s | 16 hex chars | 1 | `terminate_parent` |
+| `minimal` | 600s | 8 hex chars | 5 | `none` |
+| `low` (default) | 300s | 12 hex chars | 3 | `none` |
+| `medium` | 180s | 16 hex chars | 2 | `none` |
+| `high` | 120s | 16 hex chars | 1 | `none` |
+| `extra_high` | 60s | 16 hex chars | 1 | `terminate_parent` |
 
 You can keep a level as-is, or override any individual setting.
 Verification input tolerates spaces and dashes for easier manual entry.
+Legacy names `relaxed`, `balanced`, `strict`, `paranoid` still map automatically.
+`paranoid` maps to `extra_high` to preserve hard-fail semantics.
+
+### Optional TOTP Mode
+
+Enable authenticator-based verification in config:
+
+```yaml
+totp_mode: fallback   # off | fallback | required
+totp_window: 1        # allowed drift in 30s steps (0-3)
+```
+
+Setup and verify:
+
+```bash
+ai2fa totp setup
+ai2fa totp verify 123456
+```
 
 ### Optional Hard-Fail Mode
 

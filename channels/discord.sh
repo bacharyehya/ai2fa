@@ -19,10 +19,10 @@ channel_send() {
   local payload
   payload=$(printf '{"content":"%s"}' "$(_ai2fa_json_escape "$message")")
 
-  response=$(printf '%s' "$payload" | curl -s -o /dev/null -w "%{http_code}" -X POST \
+  response=$(printf '%s' "$payload" | _ai2fa_curl -o /dev/null -w "%{http_code}" -X POST \
     "$webhook_url" \
     -H "Content-Type: application/json" \
-    --data-binary @-)
+    --data-binary @- || true)
 
   if [ "$response" = "200" ] || [ "$response" = "204" ]; then
     return 0

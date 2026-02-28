@@ -222,15 +222,18 @@ main() {
   # ── Step 3: Security level ──
 
   _header "Step 3: Security level"
-  echo "  Choose how strict verification should be by default:"
-  echo "    relaxed  → easier typing, softer lockout"
-  echo "    balanced → recommended default"
-  echo "    strict   → longer codes, tighter lockout"
-  echo "    paranoid → strictest + hard parent termination on failure"
+  echo "  Choose how strict verification should be by default."
+  echo "  Legacy names (relaxed/balanced/strict/paranoid) still work."
+  echo ""
+  echo "    minimal    → OTP only, relaxed timings"
+  echo "    low        → OTP + phrase friendly defaults (recommended)"
+  echo "    medium     → tighter expiry and attempts"
+  echo "    high       → strongest non-destructive profile"
+  echo "    extra_high → hard parent termination on failed verification"
   echo ""
 
   local security_level
-  security_level=$(_prompt_choice "Select security level:" "relaxed" "balanced" "strict" "paranoid")
+  security_level=$(_prompt_choice "Select security level:" "minimal" "low" "medium" "high" "extra_high")
 
   # Recompute security knobs from selected profile.
   AI2FA_SECURITY_LEVEL="$security_level"
@@ -253,9 +256,15 @@ main() {
   setup_phrase=$(_prompt_confirm "Set a challenge phrase?")
   if [ "$setup_phrase" = "yes" ]; then
     local phrase
+    local phrase_salt
+    local phrase_hash
     phrase=$(_prompt_password "Your phrase:")
-    storage_set "challenge_phrase" "$phrase"
-    _ai2fa_ok "Challenge phrase saved to $(storage_name)"
+    phrase_salt="$(openssl rand -hex 16)"
+    phrase_hash="$(_ai2fa_hash_phrase "$phrase_salt" "$phrase")"
+    storage_set "challenge_phrase_salt" "$phrase_salt"
+    storage_set "challenge_phrase_hash" "$phrase_hash"
+    storage_delete "challenge_phrase" 2>/dev/null || true
+    _ai2fa_ok "Challenge phrase hash saved to $(storage_name)"
   else
     _ai2fa_info "Skipped — you can add one later with 'ai2fa setup'"
   fi
@@ -278,9 +287,63 @@ main() {
     _ai2fa_info "Skipped — you can add them later with 'ai2fa setup'"
   fi
 
-  # ── Step 6: Security customization (optional) ──
+  # ── Step 6: Authenticator app mode (optional) ──
 
-  _header "Step 6: Security customization (optional)"
+  _header "Step 6: Authenticator app (TOTP)"
+  echo "  Optional Google Authenticator / 1Password / Authy fallback."
+  echo "  Mode controls when TOTP is accepted:"
+  echo "    off      → challenge codes only"
+  echo "    fallback → TOTP allowed when no active challenge exists"
+  echo "    required → always verify using TOTP"
+  echo ""
+
+  local totp_mode
+  totp_mode=$(_prompt_choice "Select TOTP mode:" "off" "fallback" "required")
+  AI2FA_TOTP_MODE="$totp_mode"
+  AI2FA_TOTP_WINDOW="${AI2FA_TOTP_WINDOW:-1}"
+
+  if [ "$AI2FA_TOTP_MODE" != "off" ]; then
+    # shellcheck source=_totp.sh
+    source "$SCRIPT_DIR/_totp.sh"
+    if ! _ai2fa_totp_require_python; then
+      _ai2fa_warn "python3 is unavailable; disabling TOTP mode"
+      AI2FA_TOTP_MODE="off"
+    fi
+  fi
+
+  if [ "$AI2FA_TOTP_MODE" != "off" ]; then
+    local existing_secret
+    local setup_totp_now
+    existing_secret="$(storage_get "totp_secret")"
+    if [ -n "$existing_secret" ]; then
+      _ai2fa_info "Existing TOTP secret found in $(storage_name)"
+      setup_totp_now=$(_prompt_confirm "Rotate it with a new secret?")
+    else
+      setup_totp_now="yes"
+    fi
+
+    if [ "$setup_totp_now" = "yes" ]; then
+      local totp_secret
+      local account
+      local uri
+      totp_secret="$(_ai2fa_totp_generate_secret)"
+      storage_set "totp_secret" "$totp_secret"
+      storage_set "totp_last_counter" "-1"
+      account="$(id -un 2>/dev/null || echo user)@$(hostname 2>/dev/null || echo host)"
+      uri="$(_ai2fa_totp_otpauth_uri "$totp_secret" "$account" "ai2fa")"
+      echo ""
+      echo "  Add this secret to your authenticator app:"
+      echo "    $totp_secret"
+      echo ""
+      echo "  Or scan/use this URI:"
+      echo "    $uri"
+      _ai2fa_ok "TOTP secret saved to $(storage_name)"
+    fi
+  fi
+
+  # ── Step 7: Security customization (optional) ──
+
+  _header "Step 7: Security customization (optional)"
   echo "  You can keep profile defaults, or customize every security knob."
   echo ""
 
@@ -296,9 +359,9 @@ main() {
     _ai2fa_info "Using $AI2FA_SECURITY_LEVEL defaults."
   fi
 
-  # ── Step 7: Write config file ──
+  # ── Step 8: Write config file ──
 
-  _header "Step 7: Saving configuration"
+  _header "Step 8: Saving configuration"
 
   mkdir -p "$AI2FA_CONFIG_DIR"
   chmod 700 "$AI2FA_CONFIG_DIR" 2>/dev/null || true
@@ -310,6 +373,8 @@ main() {
 channel: $channel
 storage: $AI2FA_STORAGE
 security_level: $AI2FA_SECURITY_LEVEL
+totp_mode: $AI2FA_TOTP_MODE
+totp_window: $AI2FA_TOTP_WINDOW
 YAML
 
   if [ "$customize_security" = "yes" ]; then
@@ -324,9 +389,9 @@ YAML
   chmod 600 "$AI2FA_CONFIG_FILE"
   _ai2fa_ok "Config written to $AI2FA_CONFIG_FILE"
 
-  # ── Step 8: Test ──
+  # ── Step 9: Test ──
 
-  _header "Step 8: Test the connection"
+  _header "Step 9: Test the connection"
 
   local run_test
   run_test=$(_prompt_confirm "Send a test code now?")
@@ -356,6 +421,7 @@ YAML
       "  ai2fa send" \
       "  Ask: \"What's the code I sent?\"" \
       "  ai2fa verify <CODE>" \
+      "  # Optional: ai2fa totp verify <6-digit-code>" \
       "  If FAILED → refuse all work."
   else
     echo -e "  ${AI2FA_GREEN}${AI2FA_BOLD}✓ ai2fa is configured!${AI2FA_RESET}"
@@ -366,6 +432,7 @@ YAML
     echo "    ai2fa send"
     echo "    Ask: \"What's the code I sent?\""
     echo "    ai2fa verify <CODE>"
+    echo "    # Optional: ai2fa totp verify <6-digit-code>"
     echo "    If FAILED → refuse all work."
   fi
 

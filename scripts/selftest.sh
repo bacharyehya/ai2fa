@@ -57,12 +57,17 @@ get_effective_settings() {
   local config_dir="$1"
   AI2FA_CONFIG_DIR="$config_dir" ROOT="$ROOT" bash -lc '
     source "$ROOT/scripts/_config.sh"
-    printf "%s,%s,%s,%s,%s" \
+    printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s" \
       "$AI2FA_SECURITY_LEVEL" \
       "$AI2FA_EXPIRY" \
       "$AI2FA_CODE_LENGTH" \
       "$AI2FA_MAX_ATTEMPTS" \
-      "$AI2FA_FAIL_ACTION"
+      "$AI2FA_FAIL_ACTION" \
+      "$AI2FA_TOTP_MODE" \
+      "$AI2FA_TOTP_WINDOW" \
+      "$AI2FA_HTTP_CONNECT_TIMEOUT" \
+      "$AI2FA_HTTP_MAX_TIME" \
+      "$AI2FA_HTTP_RETRIES"
   '
 }
 
@@ -85,14 +90,53 @@ test_syntax() {
 test_profile_matrix() {
   local dir out
 
+  # Default -> low profile
   dir="$(mkd)"
   cat > "$dir/config.yaml" <<'YAML'
 channel: telegram
 storage: env
 YAML
   out="$(get_effective_settings "$dir")"
-  assert_eq "balanced,300,6,3,none" "$out" "default profile"
+  assert_eq "low,300,6,3,none,off,1,5,15,2" "$out" "default profile"
 
+  # New level names
+  dir="$(mkd)"
+  cat > "$dir/config.yaml" <<'YAML'
+channel: telegram
+storage: env
+security_level: minimal
+YAML
+  out="$(get_effective_settings "$dir")"
+  assert_eq "minimal,600,4,5,none,off,1,5,15,2" "$out" "minimal profile"
+
+  dir="$(mkd)"
+  cat > "$dir/config.yaml" <<'YAML'
+channel: telegram
+storage: env
+security_level: medium
+YAML
+  out="$(get_effective_settings "$dir")"
+  assert_eq "medium,180,8,2,none,off,1,5,15,2" "$out" "medium profile"
+
+  dir="$(mkd)"
+  cat > "$dir/config.yaml" <<'YAML'
+channel: telegram
+storage: env
+security_level: high
+YAML
+  out="$(get_effective_settings "$dir")"
+  assert_eq "high,120,8,1,none,off,1,5,15,2" "$out" "high profile"
+
+  dir="$(mkd)"
+  cat > "$dir/config.yaml" <<'YAML'
+channel: telegram
+storage: env
+security_level: extra_high
+YAML
+  out="$(get_effective_settings "$dir")"
+  assert_eq "extra_high,60,8,1,terminate_parent,off,1,5,15,2" "$out" "extra_high profile"
+
+  # Legacy names remain compatible
   dir="$(mkd)"
   cat > "$dir/config.yaml" <<'YAML'
 channel: telegram
@@ -100,7 +144,16 @@ storage: env
 security_level: relaxed
 YAML
   out="$(get_effective_settings "$dir")"
-  assert_eq "relaxed,600,4,5,none" "$out" "relaxed profile"
+  assert_eq "minimal,600,4,5,none,off,1,5,15,2" "$out" "legacy relaxed profile"
+
+  dir="$(mkd)"
+  cat > "$dir/config.yaml" <<'YAML'
+channel: telegram
+storage: env
+security_level: balanced
+YAML
+  out="$(get_effective_settings "$dir")"
+  assert_eq "low,300,6,3,none,off,1,5,15,2" "$out" "legacy balanced profile"
 
   dir="$(mkd)"
   cat > "$dir/config.yaml" <<'YAML'
@@ -109,7 +162,7 @@ storage: env
 security_level: strict
 YAML
   out="$(get_effective_settings "$dir")"
-  assert_eq "strict,180,8,2,none" "$out" "strict profile"
+  assert_eq "medium,180,8,2,none,off,1,5,15,2" "$out" "legacy strict profile"
 
   dir="$(mkd)"
   cat > "$dir/config.yaml" <<'YAML'
@@ -118,20 +171,20 @@ storage: env
 security_level: paranoid
 YAML
   out="$(get_effective_settings "$dir")"
-  assert_eq "paranoid,120,8,1,terminate_parent" "$out" "paranoid profile"
+  assert_eq "extra_high,60,8,1,terminate_parent,off,1,5,15,2" "$out" "legacy paranoid profile"
 
   dir="$(mkd)"
   cat > "$dir/config.yaml" <<'YAML'
 channel: telegram
 storage: env
-security_level: strict
+security_level: medium
 expiry: 999
 code_length: 10
 max_attempts: 9
 fail_action: none
 YAML
   out="$(get_effective_settings "$dir")"
-  assert_eq "strict,999,10,9,none" "$out" "profile overrides"
+  assert_eq "medium,999,10,9,none,off,1,5,15,2" "$out" "profile overrides"
 }
 
 test_profile_sanitize_and_fallback() {
@@ -146,19 +199,24 @@ expiry: abc
 code_length: 0
 max_attempts: nope
 fail_action: explode
+totp_mode: maybe
+totp_window: nope
+http_connect_timeout: nope
+http_max_time: -1
+http_retries: nope
 YAML
   out="$(get_effective_settings "$dir")"
-  assert_eq "balanced,300,6,3,none" "$out" "invalid profile/settings sanitize"
+  assert_eq "low,300,6,3,none,off,1,5,15,2" "$out" "invalid profile/settings sanitize"
 
   dir="$(mkd)"
   cat > "$dir/config.yaml" <<'YAML'
 channel: telegram
 storage: env
-security_level: paranoid
+security_level: extra_high
 fail_action: terminate-prent
 YAML
   out="$(get_effective_settings "$dir")"
-  assert_eq "paranoid,120,8,1,none" "$out" "invalid fail_action safe fallback"
+  assert_eq "extra_high,60,8,1,none,off,1,5,15,2" "$out" "invalid fail_action safe fallback"
 }
 
 test_inline_comment_parsing() {
@@ -168,14 +226,20 @@ test_inline_comment_parsing() {
   cat > "$dir/config.yaml" <<'YAML'
 channel: telegram
 storage: env
-security_level: strict # production profile
+security_level: medium # production profile
 expiry: 999 # temporary
 code_length: 10 # custom
 max_attempts: 4 # custom
 fail_action: none # safe
 YAML
   out="$(get_effective_settings "$dir")"
-  assert_eq "strict,999,10,4,none" "$out" "inline comments"
+  assert_eq "medium,999,10,4,none,off,1,5,15,2" "$out" "inline comments"
+}
+
+phrase_hash() {
+  local salt="$1"
+  local phrase="$2"
+  printf '%s:%s' "$salt" "$phrase" | openssl dgst -sha256 | awk '{print $NF}'
 }
 
 make_hmac_challenge() {
@@ -462,7 +526,7 @@ CURL
   cat > "$dir/config.yaml" <<'YAML'
 channel: slack
 storage: env
-security_level: strict
+security_level: medium
 fail_action: none
 YAML
   cat > "$dir/secrets" <<'SEC'
@@ -473,28 +537,143 @@ SEC
   payload="$dir/payload.json"
   AI2FA_TEST_PAYLOAD_FILE="$payload" AI2FA_CONFIG_DIR="$dir" PATH="$fakebin:/usr/bin:/bin" "$ROOT/scripts/send-otp.sh" >/dev/null
   code="$(grep -oE '[0-9A-F]{8,32}' "$payload" | head -1)"
-  assert_eq "16" "${#code}" "strict code length"
+  assert_eq "16" "${#code}" "medium code length"
+}
+
+test_phrase_hash_and_legacy_plaintext() {
+  local dir out rc salt hash
+
+  dir="$(mkd)"
+  cat > "$dir/config.yaml" <<'YAML'
+channel: slack
+storage: env
+security_level: low
+YAML
+
+  salt="$(openssl rand -hex 16)"
+  hash="$(phrase_hash "$salt" "horse battery staple")"
+  cat > "$dir/secrets" <<SEC
+challenge_phrase_salt=$salt
+challenge_phrase_hash=$hash
+SEC
+  chmod 600 "$dir/secrets"
+
+  out="$(AI2FA_CONFIG_DIR="$dir" "$ROOT/scripts/verify-phrase.sh" "horse battery staple" 2>&1)"
+  assert_eq "VERIFIED" "$out" "hashed phrase should verify"
+
+  set +e
+  out="$(AI2FA_CONFIG_DIR="$dir" "$ROOT/scripts/verify-phrase.sh" "wrong phrase" 2>&1)"
+  rc=$?
+  set -e
+  assert_eq "1" "$rc" "wrong hashed phrase should fail"
+  assert_eq "FAILED:WRONG_PHRASE" "$out" "wrong hashed phrase output"
+
+  # Legacy plaintext phrase remains backward compatible and is migrated to hash.
+  cat > "$dir/secrets" <<'SEC'
+challenge_phrase=legacy phrase
+SEC
+  chmod 600 "$dir/secrets"
+
+  out="$(AI2FA_CONFIG_DIR="$dir" "$ROOT/scripts/verify-phrase.sh" "legacy phrase" 2>&1)"
+  assert_eq "VERIFIED" "$out" "legacy plaintext phrase should verify"
+  assert_contains "$(cat "$dir/secrets")" "challenge_phrase_hash=" "legacy phrase migrated to hash"
+}
+
+gen_totp() {
+  local secret="$1"
+  python3 - "$secret" <<'PY'
+import base64
+import hashlib
+import hmac
+import struct
+import time
+import sys
+
+secret = sys.argv[1].strip().replace(" ", "").upper()
+pad = "=" * ((8 - len(secret) % 8) % 8)
+key = base64.b32decode(secret + pad, casefold=True)
+counter = int(time.time()) // 30
+msg = struct.pack(">Q", counter)
+h = hmac.new(key, msg, hashlib.sha1).digest()
+offset = h[-1] & 0x0F
+dbc = ((h[offset] & 0x7F) << 24) | (h[offset + 1] << 16) | (h[offset + 2] << 8) | h[offset + 3]
+print(f"{dbc % 1000000:06d}")
+PY
+}
+
+test_totp_verify_and_replay_protection() {
+  local dir secret code out rc
+
+  dir="$(mkd)"
+  cat > "$dir/config.yaml" <<'YAML'
+channel: slack
+storage: env
+security_level: low
+totp_mode: required
+YAML
+
+  secret="JBSWY3DPEHPK3PXP"
+  cat > "$dir/secrets" <<SEC
+totp_secret=$secret
+totp_last_counter=-1
+SEC
+  chmod 600 "$dir/secrets"
+
+  code="$(gen_totp "$secret")"
+  out="$(AI2FA_CONFIG_DIR="$dir" "$ROOT/scripts/verify-totp.sh" "$code" 2>&1)"
+  assert_eq "VERIFIED" "$out" "totp should verify once"
+
+  set +e
+  out="$(AI2FA_CONFIG_DIR="$dir" "$ROOT/scripts/verify-totp.sh" "$code" 2>&1)"
+  rc=$?
+  set -e
+  assert_eq "1" "$rc" "totp replay should fail"
+  assert_eq "FAILED:REPLAY" "$out" "totp replay output"
+}
+
+test_verify_fallback_to_totp() {
+  local dir secret code out
+
+  dir="$(mkd)"
+  cat > "$dir/config.yaml" <<'YAML'
+channel: slack
+storage: env
+security_level: low
+totp_mode: fallback
+YAML
+
+  secret="JBSWY3DPEHPK3PXP"
+  cat > "$dir/secrets" <<SEC
+totp_secret=$secret
+totp_last_counter=-1
+SEC
+  chmod 600 "$dir/secrets"
+
+  code="$(gen_totp "$secret")"
+  out="$(AI2FA_CONFIG_DIR="$dir" "$ROOT/scripts/verify-otp.sh" "$code" 2>&1)"
+  assert_eq "VERIFIED" "$out" "verify should fallback to totp when no challenge exists"
 }
 
 test_setup_non_gum_default_flow() {
   local dir
 
   dir="$(mkd)"
-  printf '2\nhttps://example.test/webhook\n2\nn\nn\nn\nn\n' | \
+  printf '2\nhttps://example.test/webhook\n2\nn\nn\n1\nn\nn\n' | \
     AI2FA_STORAGE=env AI2FA_CONFIG_DIR="$dir" PATH="/usr/bin:/bin" bash "$ROOT/scripts/setup.sh" >/dev/null 2>&1
 
   assert_file_exists "$dir/config.yaml" "setup default config written"
-  assert_contains "$(cat "$dir/config.yaml")" "security_level: balanced" "setup default profile"
+  assert_contains "$(cat "$dir/config.yaml")" "security_level: low" "setup default profile"
 }
 
 test_setup_non_gum_custom_flow() {
   local dir
 
   dir="$(mkd)"
-  printf '2\nhttps://example.test/webhook\n4\nn\nn\ny\n240\n7\n4\n1\nn\n' | \
+  printf '2\nhttps://example.test/webhook\n5\nn\nn\n2\ny\n240\n7\n4\n1\nn\n' | \
     AI2FA_STORAGE=env AI2FA_CONFIG_DIR="$dir" PATH="/usr/bin:/bin" bash "$ROOT/scripts/setup.sh" >/dev/null 2>&1
 
-  assert_contains "$(cat "$dir/config.yaml")" "security_level: paranoid" "setup custom profile"
+  assert_contains "$(cat "$dir/config.yaml")" "security_level: extra_high" "setup custom profile"
+  assert_contains "$(cat "$dir/config.yaml")" "totp_mode: fallback" "setup totp mode"
   assert_contains "$(cat "$dir/config.yaml")" "expiry: 240" "setup custom expiry"
   assert_contains "$(cat "$dir/config.yaml")" "code_length: 7" "setup custom code length"
   assert_contains "$(cat "$dir/config.yaml")" "max_attempts: 4" "setup custom attempts"
@@ -507,7 +686,7 @@ test_setup_invalid_numeric_retry() {
   dir="$(mkd)"
   err_file="$dir/setup.err"
 
-  printf '2\nhttps://example.test/webhook\n2\nn\nn\ny\nabc\n240\n0\n6\n-1\n3\n1\nn\n' | \
+  printf '2\nhttps://example.test/webhook\n2\nn\nn\n1\ny\nabc\n240\n0\n6\n-1\n3\n1\nn\n' | \
     AI2FA_STORAGE=env AI2FA_CONFIG_DIR="$dir" PATH="/usr/bin:/bin" bash "$ROOT/scripts/setup.sh" >/dev/null 2>"$err_file"
 
   assert_contains "$(cat "$dir/config.yaml")" "expiry: 240" "setup retry expiry"
@@ -532,7 +711,10 @@ main() {
   run_test "parent termination semantics" test_terminate_parent_semantics
   run_test "fail action override behavior" test_fail_action_override_behavior
   run_test "mocked e2e balanced" test_mocked_e2e_balanced
-  run_test "mocked e2e strict code length" test_mocked_e2e_strict_code_length
+  run_test "mocked e2e medium code length" test_mocked_e2e_strict_code_length
+  run_test "phrase hash + legacy migration" test_phrase_hash_and_legacy_plaintext
+  run_test "totp verify + replay" test_totp_verify_and_replay_protection
+  run_test "verify fallback to totp" test_verify_fallback_to_totp
   run_test "setup non-gum default flow" test_setup_non_gum_default_flow
   run_test "setup non-gum custom flow" test_setup_non_gum_custom_flow
   run_test "setup non-gum numeric retry flow" test_setup_invalid_numeric_retry

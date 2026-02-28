@@ -8,14 +8,24 @@ channel: telegram
 
 # Secret storage backend (auto-detected if not set)
 # Options: keychain (macOS), pass (Linux), env (fallback)
-# storage: keychain
+storage: keychain
 
-# Security level presets
-# - relaxed: easy typing, longer expiry, softer lockout
-# - balanced: recommended default
-# - strict: longer code, tighter lockout
-# - paranoid: strictest + hard parent termination on failed verify
-# security_level: balanced
+# Security level presets (legacy names still map automatically):
+# - minimal: relaxed timings and lockout
+# - low (default): recommended everyday profile
+# - medium: tighter timeout/attempts
+# - high: strongest non-destructive profile
+# - extra_high: hard parent termination on failed verify
+security_level: low
+
+# Optional TOTP mode (Google Authenticator / Authy / 1Password):
+# - off: challenge code only
+# - fallback: use TOTP when no active challenge exists
+# - required: verify via TOTP only
+totp_mode: off
+
+# Allowed clock drift in 30s steps (0-3). Default is 1 (±30s).
+totp_window: 1
 
 # Optional overrides (set only if you need custom tuning)
 # Code expiry in seconds
@@ -28,6 +38,11 @@ channel: telegram
 # - none: return FAILED and let caller enforce policy
 # - terminate_parent: return FAILED, alert channel, and signal parent process
 # fail_action: none
+
+# Optional HTTP hardening for channel requests
+# http_connect_timeout: 5
+# http_max_time: 15
+# http_retries: 2
 
 # Channel-specific settings can go here, but credentials
 # should be stored in your OS secret store (Keychain/pass),
