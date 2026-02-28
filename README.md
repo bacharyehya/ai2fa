@@ -301,6 +301,12 @@ Behavior by mode:
 - `fallback`: `ai2fa verify` checks challenge codes first; if no challenge exists, it accepts TOTP.
 - `required`: `ai2fa verify` always checks TOTP (challenge state ignored).
 
+Common TOTP failure outputs:
+- `FAILED:NO_TOTP_CONFIGURED`
+- `FAILED:INVALID_TOTP_FORMAT`
+- `FAILED:WRONG_TOTP`
+- `FAILED:REPLAY`
+
 ### Optional Hard-Fail Mode
 
 If you want script-level enforcement (not just instruction-level refusal), set:

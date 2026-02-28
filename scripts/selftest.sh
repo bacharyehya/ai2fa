@@ -629,6 +629,13 @@ SEC
   set -e
   assert_eq "1" "$rc" "totp replay should fail"
   assert_eq "FAILED:REPLAY" "$out" "totp replay output"
+
+  set +e
+  out="$(AI2FA_CONFIG_DIR="$dir" "$ROOT/scripts/verify-totp.sh" "12 3-4" 2>&1)"
+  rc=$?
+  set -e
+  assert_eq "1" "$rc" "invalid totp format should fail"
+  assert_eq "FAILED:INVALID_TOTP_FORMAT" "$out" "invalid totp format output"
 }
 
 test_verify_fallback_to_totp() {
@@ -652,6 +659,25 @@ SEC
   code="$(gen_totp "$secret")"
   out="$(AI2FA_CONFIG_DIR="$dir" "$ROOT/scripts/verify-otp.sh" "$code" 2>&1)"
   assert_eq "VERIFIED" "$out" "verify should fallback to totp when no challenge exists"
+}
+
+test_totp_required_without_secret() {
+  local dir out rc
+
+  dir="$(mkd)"
+  cat > "$dir/config.yaml" <<'YAML'
+channel: slack
+storage: env
+security_level: low
+totp_mode: required
+YAML
+
+  set +e
+  out="$(AI2FA_CONFIG_DIR="$dir" "$ROOT/scripts/verify-otp.sh" "123456" 2>&1)"
+  rc=$?
+  set -e
+  assert_eq "1" "$rc" "required mode without secret should fail"
+  assert_eq "FAILED:NO_TOTP_CONFIGURED" "$out" "required mode without secret output"
 }
 
 test_canary_matching_and_payload_escape() {
@@ -755,6 +781,7 @@ main() {
   run_test "phrase hash + legacy migration" test_phrase_hash_and_legacy_plaintext
   run_test "totp verify + replay" test_totp_verify_and_replay_protection
   run_test "verify fallback to totp" test_verify_fallback_to_totp
+  run_test "totp required without secret" test_totp_required_without_secret
   run_test "canary matching + payload escaping" test_canary_matching_and_payload_escape
   run_test "setup non-gum default flow" test_setup_non_gum_default_flow
   run_test "setup non-gum custom flow" test_setup_non_gum_custom_flow

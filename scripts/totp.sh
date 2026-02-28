@@ -38,6 +38,7 @@ normalize_secret() {
 
 validate_secret() {
   local secret="$1"
+  _ai2fa_totp_require_python || return 1
   # Validate using matcher with an impossible code.
   # Exit code 3 means secret format decode succeeded but code mismatch.
   set +e
